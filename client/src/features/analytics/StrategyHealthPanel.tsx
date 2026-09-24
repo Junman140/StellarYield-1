@@ -5,7 +5,7 @@ import StatusBadge from '../../components/StatusBadge';
 import EmptyState from '../../components/common/EmptyState';
 import { EMPTY_STATE_STRATEGY_HEALTH } from '../../utils/emptyStateCopy';
 import { FreshnessBanner } from "../../components/dashboard/FreshnessBanner";
-import { useCachedFetch } from "../../hooks/useCachedFetch";
+import { stableSort } from "../../lib/stableSort";
 import { RISK_CHART_COLORS, CHART_PANEL_BG, CHART_PANEL_AXIS } from "../../components/charts/darkModeContrast";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -195,7 +195,22 @@ export default function StrategyHealthPanel({ strategyIds = ['strategy_1', 'stra
 
       {/* Strategy Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {healthScores.map((score) => (
+        {stableSort(
+          healthScores,
+          (a, b) => {
+            // Unhealthy strategies surface first, then score (#1118).
+            const severity = {
+              critical: 0,
+              degraded: 1,
+              healthy: 2,
+              disabled: 3,
+            } as const;
+            const bySeverity = severity[a.status] - severity[b.status];
+            if (bySeverity !== 0) return bySeverity;
+            return b.overallScore - a.overallScore;
+          },
+          (score) => score.strategyId,
+        ).map((score) => (
           <div
             key={score.strategyId}
             className={`glass-card p-4 cursor-pointer transition-all duration-200 ${
@@ -383,7 +398,15 @@ export default function StrategyHealthPanel({ strategyIds = ['strategy_1', 'stra
       <div className="glass-panel p-6">
         <h3 className="text-lg font-semibold mb-4">Recent Health Signals</h3>
         <div className="space-y-3">
-          {selectedStrategy?.signals.slice(0, 5).map((signal, index) => (
+          {selectedStrategy &&
+            stableSort(
+              selectedStrategy.signals,
+              (a, b) =>
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+              (signal) => `${signal.source}|${signal.metric}`,
+            )
+              .slice(0, 5)
+              .map((signal, index) => (
             <div key={index} className="flex items-center justify-between text-sm border-b border-white/5 pb-2">
               <div className="flex items-center gap-3">
                 <span className="text-gray-400">{signal.source}</span>

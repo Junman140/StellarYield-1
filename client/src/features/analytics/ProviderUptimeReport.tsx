@@ -3,8 +3,7 @@ import { Activity, AlertTriangle, RefreshCw } from "lucide-react";
 import EmptyState from "../../components/common/EmptyState";
 import { EMPTY_STATE_PROVIDER_UPTIME } from "../../utils/emptyStateCopy";
 import { apiUrl } from "../../lib/api";
-import { useCachedFetch } from "../../hooks/useCachedFetch";
-import { FreshnessBanner } from "../../components/dashboard/FreshnessBanner";
+import { stableSort } from "../../lib/stableSort";
 
 interface OutageWindow {
   startedAt: string;
@@ -55,7 +54,11 @@ function OutageList({ outages }: { outages: OutageWindow[] }) {
   }
   return (
     <ul className="space-y-1">
-      {outages.map((o, i) => (
+      {stableSort(
+        outages,
+        (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime(),
+        (o) => `${o.startedAt}|${o.endedAt ?? "ongoing"}`,
+      ).map((o, i) => (
         <li key={i} className="text-xs text-gray-400">
           {new Date(o.startedAt).toLocaleDateString()} —{" "}
           {o.endedAt ? new Date(o.endedAt).toLocaleDateString() : "ongoing"},{" "}
@@ -142,7 +145,11 @@ export default function ProviderUptimeReport() {
 
       {reports.length > 0 && (
         <div className="space-y-2">
-          {reports.map((r) => (
+          {stableSort(
+            reports,
+            (a, b) => b.uptimePct - a.uptimePct,
+            (r) => r.providerId,
+          ).map((r) => (
             <div
               key={r.providerId}
               className="bg-white/5 rounded-xl p-4 space-y-2"

@@ -23,7 +23,7 @@ import {
   Maximize2,
 } from "lucide-react";
 import { apiUrl } from "../../lib/api";
-import { cachedFetch } from "../../lib/cachedFetch";
+import { stableSort } from "../../lib/stableSort";
 import EmptyState from "../common/EmptyState";
 import { EMPTY_STATE_APY } from "../../utils/emptyStateCopy";
 import { LiquidityBufferPanel } from "./LiquidityBufferPanel";
@@ -377,10 +377,19 @@ export default function ApyDashboard() {
 
   // ── Derived state ───────────────────────────────────────────────────
 
-  const categories = ["All", ...new Set(apyData.map((d) => d.category))];
+  const categories = [
+    "All",
+    ...Array.from(new Set(apyData.map((d) => d.category))).sort((a, b) =>
+      a.localeCompare(b),
+    ),
+  ];
 
-  const filtered = apyData
-    .filter((d) => {
+  // Deterministic ordering (#1118): primary key first, then a final
+  // direction-independent tiebreak on the unique protocol-asset row id so
+  // equal-value rows keep the same order across refreshes regardless of
+  // backend response order.
+  const filtered = stableSort(
+    apyData.filter((d) => {
       if (d.unusableDueToStale) return false;
       const q = searchQuery.toLowerCase();
       const matchesSearch =
@@ -390,8 +399,8 @@ export default function ApyDashboard() {
       const matchesCategory =
         selectedCategory === "All" || d.category === selectedCategory;
       return matchesSearch && matchesCategory;
-    })
-    .sort((a, b) => {
+    }),
+    (a, b) => {
       const dir = sortDirection === "asc" ? 1 : -1;
       if (sortField === "protocol")
         return dir * a.protocol.localeCompare(b.protocol);
@@ -404,7 +413,9 @@ export default function ApyDashboard() {
       const scoreA = (a[sortField] as number) * (a.freshnessConfidence ?? 1);
       const scoreB = (b[sortField] as number) * (b.freshnessConfidence ?? 1);
       return dir * (scoreA - scoreB);
-    });
+    },
+    getApyRowId,
+  );
 
   const bestApy = apyData.length
     ? Math.max(...apyData.map((d) => d.netApy ?? d.apy))
@@ -414,17 +425,22 @@ export default function ApyDashboard() {
     : 0;
   const totalTvl = apyData.reduce((s, d) => s + d.tvl, 0);
   const protocolCount = new Set(apyData.map((d) => d.protocol)).size;
-  const feeAttributionRows = apyData.map((entry) => ({
-    vault: entry.protocol,
-    totalFeeDragApy:
-      entry.feeAttribution?.totalFeeDragApy ?? entry.feeDragApy ?? 0,
-    managementFeeApy: entry.feeAttribution?.managementFeeApy ?? 0,
-    protocolFeeApy: entry.feeAttribution?.protocolFeeApy ?? 0,
-    slippageApy: entry.feeAttribution?.slippageApy ?? 0,
-    networkFeeApy: entry.feeAttribution?.networkFeeApy ?? 0,
-    rewardOffsetApy: entry.feeAttribution?.rewardOffsetApy ?? 0,
-    unknownFeeApy: entry.feeAttribution?.unknownFeeApy ?? 0,
-  }));
+  const feeAttributionRows = stableSort(
+    apyData.map((entry) => ({
+      id: getApyRowId(entry),
+      vault: entry.protocol,
+      totalFeeDragApy:
+        entry.feeAttribution?.totalFeeDragApy ?? entry.feeDragApy ?? 0,
+      managementFeeApy: entry.feeAttribution?.managementFeeApy ?? 0,
+      protocolFeeApy: entry.feeAttribution?.protocolFeeApy ?? 0,
+      slippageApy: entry.feeAttribution?.slippageApy ?? 0,
+      networkFeeApy: entry.feeAttribution?.networkFeeApy ?? 0,
+      rewardOffsetApy: entry.feeAttribution?.rewardOffsetApy ?? 0,
+      unknownFeeApy: entry.feeAttribution?.unknownFeeApy ?? 0,
+    })),
+    (a, b) => a.vault.localeCompare(b.vault),
+    (row) => row.id,
+  );
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -631,7 +647,7 @@ export default function ApyDashboard() {
               </thead>
               <tbody>
                 {feeAttributionRows.map((row) => (
-                  <tr key={row.vault} className="border-t border-white/10">
+                  <tr key={row.id} className="border-t border-white/10">
                     <td className="py-2">{row.vault}</td>
                     <td className="py-2 text-right text-red-300">
                       {row.totalFeeDragApy.toFixed(2)}%

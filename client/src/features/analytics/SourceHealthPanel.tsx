@@ -9,7 +9,7 @@ import { Activity, RefreshCw, AlertTriangle } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge";
 import { FreshnessBanner } from "../../components/dashboard/FreshnessBanner";
 import { apiUrl } from "../../lib/api";
-import { useCachedFetch } from "../../hooks/useCachedFetch";
+import { stableSort } from "../../lib/stableSort";
 import {
   getSourceStatusDisplay,
   formatLatency,
@@ -128,7 +128,23 @@ export default function SourceHealthPanel() {
                 </tr>
               </thead>
               <tbody>
-                {registry.sources.map((source) => {
+                {stableSort(
+                  registry.sources,
+                  (a, b) => {
+                    // Attention-worthy sources first, then uptime (#1118).
+                    const severity: Record<string, number> = {
+                      unavailable: 0,
+                      stale: 1,
+                      degraded: 2,
+                      healthy: 3,
+                    };
+                    const bySeverity =
+                      (severity[a.status] ?? 4) - (severity[b.status] ?? 4);
+                    if (bySeverity !== 0) return bySeverity;
+                    return b.uptimePct - a.uptimePct;
+                  },
+                  (source) => source.providerId,
+                ).map((source) => {
                   const display = getSourceStatusDisplay(source.status);
                   return (
                     <tr

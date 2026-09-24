@@ -8,8 +8,7 @@ import StatusBadge from '../../components/StatusBadge';
 import EmptyState from '../../components/common/EmptyState';
 import { EMPTY_STATE_COMPATIBILITY } from '../../utils/emptyStateCopy';
 import { RISK_CHART_COLORS } from "../../components/charts/darkModeContrast";
-import { useCachedFetch } from "../../hooks/useCachedFetch";
-import { FreshnessBanner } from "../../components/dashboard/FreshnessBanner";
+import { stableSort } from "../../lib/stableSort";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -125,7 +124,15 @@ function sortIssues(issues: CompatibilityIssue[]): CompatibilityIssue[] {
 
     const dateA = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
     const dateB = b.lastUpdated ? new Date(b.lastUpdated).getTime() : 0;
-    return dateB - dateA;
+    if (dateA !== dateB) return dateB - dateA;
+
+    // Deterministic tiebreak (#1118): component → protocol → issue text, so
+    // equal-severity/equal-date rows keep the same order across refreshes.
+    const byComponent = a.component.localeCompare(b.component);
+    if (byComponent !== 0) return byComponent;
+    const byProtocol = (a.protocolName ?? "").localeCompare(b.protocolName ?? "");
+    if (byProtocol !== 0) return byProtocol;
+    return a.issue.localeCompare(b.issue);
   });
 }
 
@@ -337,7 +344,7 @@ export default function CompatibilityPanel() {
               </span>
             </div>
             <div className="space-y-1">
-              {report.criticalIssues.slice(0, 3).map((issue, index) => (
+              {sortIssues(report.criticalIssues).slice(0, 3).map((issue, index) => (
                 <div key={index} className="text-sm text-red-300">
                   - {issue.protocolName ?? issue.component}: {issue.issue}
                 </div>
@@ -509,7 +516,11 @@ export default function CompatibilityPanel() {
 
       {/* Protocol Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {report.protocols.map((protocol) => (
+        {stableSort(
+          report.protocols,
+          (a, b) => a.protocolName.localeCompare(b.protocolName),
+          (protocol) => protocol.protocolName,
+        ).map((protocol) => (
           <div
             key={protocol.protocolName}
             className={`glass-card p-4 cursor-pointer transition-all duration-200 ${
