@@ -19,9 +19,38 @@ import {
   RebalancingPreviewError,
 } from "../services/treasurySimulationService";
 import { successEnvelope, errorEnvelope } from "../types/envelope";
+import { toExportFailure } from "../types/exportFailure";
 import { requireAdmin } from "../middleware/authz";
 
 const router = Router();
+
+/**
+ * Emit a typed error envelope for treasury export routes (#1122).
+ *
+ * Validation errors keep their original code and gain `category: "validation"`
+ * so the UI can branch on category without knowing every code. Anything else
+ * is classified deterministically (timeout / service failure) via
+ * `toExportFailure` instead of being reported as a generic invalid request.
+ */
+function sendTreasuryExportError(res: Response, err: unknown, route: string): void {
+  if (err instanceof TreasuryValidationError || err instanceof RebalancingPreviewError) {
+    res.status(err.statusCode).json(
+      errorEnvelope(err.code, err.message, route, err.details, {
+        category: "validation",
+        retryable: false,
+      }),
+    );
+    return;
+  }
+
+  const failure = toExportFailure(err);
+  res.status(failure.httpStatus).json(
+    errorEnvelope(failure.code, failure.message, route, failure.details, {
+      category: failure.category,
+      retryable: failure.retryable,
+    }),
+  );
+}
 
 // #935 — treasury simulation/mutation endpoints are compute- and storage-heavy;
 // rate-limit to prevent burst abuse with a clear 429 error response.
@@ -139,18 +168,10 @@ router.post("/export-comparison", treasuryMutationLimiter, requireAdmin, (req: R
 
     const jsonStr = exportComparisonJSON(comparison);
     res.setHeader("Content-Type", "application/json");
-    res.setHeader("Content-Disposition", `attachment; filename="treasury_scenario_comparison.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="treasury_scenario_comparison.json"`);
     res.status(200).send(jsonStr);
   } catch (err) {
-    if (err instanceof TreasuryValidationError) {
-      res.status(err.statusCode).json(
-        errorEnvelope(err.code, err.message, "treasury/export-comparison", err.details),
-      );
-      return;
-    }
-    res.status(400).json(
-      errorEnvelope("INVALID_REQUEST", "Invalid request body", "treasury/export-comparison"),
-    );
+    sendTreasuryExportError(res, err, "treasury/export-comparison");
   }
 });
 
@@ -195,35 +216,7 @@ router.post(
       );
       res.status(200).send(jsonStr);
     } catch (err) {
-      if (err instanceof RebalancingPreviewError) {
-        res.status(err.statusCode).json(
-          errorEnvelope(
-            err.code,
-            err.message,
-            "treasury/rebalancing/preview/export",
-            err.details,
-          ),
-        );
-        return;
-      }
-      if (err instanceof TreasuryValidationError) {
-        res.status(err.statusCode).json(
-          errorEnvelope(
-            err.code,
-            err.message,
-            "treasury/rebalancing/preview/export",
-            err.details,
-          ),
-        );
-        return;
-      }
-      res.status(400).json(
-        errorEnvelope(
-          "INVALID_REQUEST",
-          "Invalid request body",
-          "treasury/rebalancing/preview/export",
-        ),
-      );
+      sendTreasuryExportError(res, err, "treasury/rebalancing/preview/export");
     }
   },
 );

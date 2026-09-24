@@ -15,6 +15,7 @@ import {
 import { yieldReliabilityEngine } from "../services/yieldReliabilityService";
 import { rotationRegistry } from "../services/strategyRotationService";
 import { exportService } from "../services/exportService";
+import { sendExportError } from "../utils/errorResponse";
 import { strategySnapshotVersioningService } from "../services/strategySnapshotVersioningService";
 import { strategyLifecycleAuditService } from "../services/strategyLifecycleAuditService";
 
@@ -194,7 +195,7 @@ router.get("/export", async (req: Request, res: Response) => {
     res.json(bundle);
   } catch (error) {
     console.error("Export failed:", error);
-    res.status(500).json({ error: "Failed to generate export bundle" });
+    sendExportError(res, error);
   }
 });
 
@@ -209,7 +210,7 @@ router.get("/export/preview", async (req: Request, res: Response) => {
     res.json(metadata);
   } catch (error) {
     console.error("Export preview failed:", error);
-    res.status(500).json({ error: "Failed to generate export preview" });
+    sendExportError(res, error);
   }
 });
 
