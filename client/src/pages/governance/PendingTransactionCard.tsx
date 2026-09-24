@@ -9,9 +9,9 @@ import {
   TX_PHASE_WALLET_ONLY,
 } from "../../services/transactionPhase";
 import type { PendingTransaction } from "./types";
+import { getNetworkPassphrase } from "../../lib/networkEnv";
 
-const NETWORK_PASSPHRASE =
-  import.meta.env.VITE_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015";
+const NETWORK_PASSPHRASE = getNetworkPassphrase();
 
 interface PendingTransactionCardProps {
   transaction: PendingTransaction;
