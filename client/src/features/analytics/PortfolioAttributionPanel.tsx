@@ -3,6 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Ba
 import { TrendingUp, TrendingDown, Minus, Info, Calendar, DollarSign, Target } from "lucide-react";
 import EmptyState from "../../components/common/EmptyState";
 import { EMPTY_STATE_ATTRIBUTION } from "../../utils/emptyStateCopy";
+import { stableSort } from "../../lib/stableSort";
 import {
   PERFORMANCE_CHART_COLORS,
   REWARD_SOURCE_CHART_COLORS,
@@ -365,7 +366,14 @@ export default function PortfolioAttributionPanel({ walletAddress }: PortfolioAt
       <div className="glass-panel p-6">
         <h3 className="text-lg font-semibold mb-4">Detailed Attribution Breakdown</h3>
         <div className="space-y-4">
-          {report.attributionBreakdown.map((breakdown, index) => (
+          {stableSort(
+            report.attributionBreakdown,
+            (a, b) =>
+              b.contribution - a.contribution ||
+              a.decisionType.localeCompare(b.decisionType),
+            (breakdown) =>
+              `${breakdown.decisionType}:${breakdown.decisions[0]?.id ?? ""}`,
+          ).map((breakdown, index) => (
             <div key={index} className="border border-white/10 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-3">
@@ -415,7 +423,15 @@ export default function PortfolioAttributionPanel({ walletAddress }: PortfolioAt
               <div className="border-t border-white/10 pt-3">
                 <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Recent Decisions</p>
                 <div className="space-y-2">
-                  {breakdown.decisions.slice(0, 3).map((decision, decisionIndex) => (
+                  {stableSort(
+                    breakdown.decisions,
+                    (a, b) =>
+                      new Date(b.timestamp).getTime() -
+                      new Date(a.timestamp).getTime(),
+                    (decision) => decision.id,
+                  )
+                    .slice(0, 3)
+                    .map((decision, decisionIndex) => (
                     <div key={decisionIndex} className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <span className="text-gray-400">{formatDate(decision.timestamp)}</span>
