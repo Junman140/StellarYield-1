@@ -23,9 +23,11 @@ import {
   Maximize2,
 } from "lucide-react";
 import { apiUrl } from "../../lib/api";
+import { cachedFetch } from "../../lib/cachedFetch";
 import EmptyState from "../common/EmptyState";
 import { EMPTY_STATE_APY } from "../../utils/emptyStateCopy";
 import { LiquidityBufferPanel } from "./LiquidityBufferPanel";
+import { FreshnessBanner } from "./FreshnessBanner";
 import { computeDecayedFreshnessConfidence } from "./freshnessDecay";
 import { RISK_EXPLANATIONS, RiskLevel } from "../../config/riskConfig";
 import { VaultRiskBadge } from "../common/VaultRiskBadge";
@@ -293,6 +295,10 @@ export default function ApyDashboard() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [refreshing, setRefreshing] = useState(false);
+  const [cacheIndicator, setCacheIndicator] = useState<
+    "offline" | "cached" | null
+  >(null);
+  const [cacheFetchedAt, setCacheFetchedAt] = useState<number | null>(null);
   const { startRequest, isCurrent } = useStaleResponseGuard();
 
   const fetchApyData = useCallback(async (showLoadingState = true) => {
@@ -304,30 +310,45 @@ export default function ApyDashboard() {
 
     try {
       setError(null);
-      const res = await fetch(apiUrl("/api/yields"));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: unknown = await res.json();
+      const result = await cachedFetch<unknown>(apiUrl("/api/yields"));
       if (!isCurrent(token)) return;
-      const rows = Array.isArray(data) ? data : [];
-      const augmented: ApyEntry[] = rows.map((row) => {
-        const entry = normalizeApyEntry(row as ApiApyEntry);
-        const fetchedTime = entry.fetchedAt
-          ? new Date(entry.fetchedAt).getTime()
-          : Date.now();
-        const freshness = computeDecayedFreshnessConfidence(
-          Date.now() - fetchedTime,
+      if (result.data == null) {
+        setError(
+          result.error
+            ? getErrorMessage(new Error(result.error))
+            : "Unable to fetch live APY data right now",
         );
-        return {
-          ...entry,
-          freshnessConfidence: freshness.confidence,
-          unusableDueToStale: freshness.unusable,
-        };
-      });
-      setApyData(augmented);
+        setApyData([]);
+        setCacheIndicator(null);
+        setCacheFetchedAt(null);
+      } else {
+        const rows = Array.isArray(result.data) ? result.data : [];
+        const augmented: ApyEntry[] = rows.map((row) => {
+          const entry = normalizeApyEntry(row as ApiApyEntry);
+          const fetchedTime = entry.fetchedAt
+            ? new Date(entry.fetchedAt).getTime()
+            : Date.now();
+          const freshness = computeDecayedFreshnessConfidence(
+            Date.now() - fetchedTime,
+          );
+          return {
+            ...entry,
+            freshnessConfidence: freshness.confidence,
+            unusableDueToStale: freshness.unusable,
+          };
+        });
+        setApyData(augmented);
+        setCacheIndicator(
+          result.offline ? "offline" : result.fromCache ? "cached" : null,
+        );
+        setCacheFetchedAt(result.fetchedAt);
+        setError(null);
+      }
     } catch (err) {
       if (!isCurrent(token)) return;
       setError(getErrorMessage(err));
       setApyData([]);
+      setCacheIndicator(null);
     } finally {
       if (isCurrent(token)) {
         setLoading(false);
@@ -338,6 +359,15 @@ export default function ApyDashboard() {
 
   useEffect(() => {
     void fetchApyData();
+  }, [fetchApyData]);
+
+  // Auto-refresh cached rates when connectivity returns (#1125).
+  useEffect(() => {
+    const handleOnline = () => {
+      void fetchApyData(false);
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
   }, [fetchApyData]);
 
   const handleRefresh = () => {
@@ -482,6 +512,19 @@ export default function ApyDashboard() {
           {refreshing ? "Refreshing..." : "Refresh Rates"}
         </button>
       </header>
+
+      {cacheIndicator && apyData.length > 0 && (
+        <FreshnessBanner
+          lastUpdated={
+            cacheFetchedAt != null
+              ? new Date(cacheFetchedAt).toISOString()
+              : undefined
+          }
+          source="cache"
+          isOffline={cacheIndicator === "offline"}
+          onRefresh={handleRefresh}
+        />
+      )}
 
       {error && (
         <div
